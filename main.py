@@ -13,6 +13,7 @@ from training import run_training
 from trajectory_utils import (
     discover_trajectory_files,
     load_trajectory_episode,
+    list_trajectory_episode_indices,
     replay_trajectory,
     run_episode_with_policy,
     write_checkpoint_trajectories,
@@ -57,6 +58,7 @@ def parse_args():
     )
     parser.add_argument("--trajectory-file", type=str, default=None, help="Trajectory file (.json or .jsonl) to replay")
     parser.add_argument("--trajectory-episode", type=int, default=1, help="Evaluation episode index inside the trajectory file to replay")
+    parser.add_argument("--replay-all-episodes", action="store_true", help="Replay all evaluation episodes found in each trajectory file")
     parser.add_argument("--replay-from-checkpoint", type=int, default=None, help="Replay all checkpoint files from this checkpoint number onward")
     parser.add_argument("--replay-to-checkpoint", type=int, default=None, help="Optional upper bound for batch replay checkpoint number")
     parser.add_argument("--log-metrics", action="store_true", help="Log training metrics for live monitoring")
@@ -131,9 +133,41 @@ if __name__ == "__main__":
 
         print(f"Replaying {len(replay_files)} trajectory file(s) in one session")
         for path in replay_files:
-            trajectory_data = load_trajectory_episode(path, args.trajectory_episode)
-            print(f"Loaded trajectory from: {path}")
-            stopped = replay_trajectory(env, renderer, trajectory_data)
+            if args.replay_all_episodes:
+                episode_indices = list_trajectory_episode_indices(path)
+                if not episode_indices:
+                    print(f"No evaluation episodes found in trajectory file: {path}")
+                    continue
+                seed_data = load_trajectory_episode(path, episode_indices[0])
+                file_training_state = seed_data.get("training_state", {})
+                replay_attacker_score = int(file_training_state.get("attacker_score", 0))
+                replay_defender_score = int(file_training_state.get("defender_score", 0))
+                replay_episode_number = int(
+                    file_training_state.get("episode_number", int(seed_data.get("checkpoint_episode", 1) or 1))
+                )
+            else:
+                episode_indices = [args.trajectory_episode]
+
+            for episode_idx in episode_indices:
+                trajectory_data = load_trajectory_episode(path, episode_idx)
+                print(f"Loaded trajectory from: {path} | evaluation_episode={episode_idx}")
+                if args.replay_all_episodes:
+                    env.attacker_score = replay_attacker_score
+                    env.defender_score = replay_defender_score
+                    env.episode_number = replay_episode_number
+                    stopped = replay_trajectory(env, renderer, trajectory_data, hydrate_from_training_state=False)
+
+                    terminal_reason = trajectory_data.get("episode", {}).get("terminal_reason")
+                    if terminal_reason == "cross":
+                        replay_attacker_score += 1
+                    elif terminal_reason in {"tag", "timeout"}:
+                        replay_defender_score += 1
+                    replay_episode_number += 1
+                else:
+                    stopped = replay_trajectory(env, renderer, trajectory_data)
+                if stopped:
+                    break
+
             if stopped:
                 break
 

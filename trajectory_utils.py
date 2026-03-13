@@ -226,16 +226,41 @@ def load_trajectory_episode(trajectory_file, trajectory_episode):
     raise ValueError("Trajectory file must end with .json or .jsonl")
 
 
-def replay_trajectory(env, renderer, trajectory_data):
+def list_trajectory_episode_indices(trajectory_file):
+    if trajectory_file.endswith(".json"):
+        with open(trajectory_file, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        indices = [int(ep.get("evaluation_episode")) for ep in payload.get("episodes", []) if "evaluation_episode" in ep]
+        return sorted(set(indices))
+
+    if trajectory_file.endswith(".jsonl"):
+        indices = set()
+        with open(trajectory_file, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                record = json.loads(line)
+                if record.get("record_type") == "episode" and "evaluation_episode" in record:
+                    indices.add(int(record["evaluation_episode"]))
+        return sorted(indices)
+
+    raise ValueError("Trajectory file must end with .json or .jsonl")
+
+
+def replay_trajectory(env, renderer, trajectory_data, hydrate_from_training_state=True):
     episode_payload = trajectory_data["episode"]
     checkpoint_episode = int(trajectory_data.get("checkpoint_episode", 0))
     training_state = trajectory_data.get("training_state", {})
     frames = episode_payload.get("frames", [])
     evaluation_episode = int(episode_payload.get("evaluation_episode", 1))
 
-    env.attacker_score = int(training_state.get("attacker_score", 0))
-    env.defender_score = int(training_state.get("defender_score", 0))
-    env.episode_number = int(training_state.get("episode_number", checkpoint_episode or evaluation_episode))
+    if hydrate_from_training_state:
+        env.attacker_score = int(training_state.get("attacker_score", 0))
+        env.defender_score = int(training_state.get("defender_score", 0))
+        base_episode_number = int(training_state.get("episode_number", checkpoint_episode or 1))
+        # Evaluation episodes are generated sequentially after checkpoint state.
+        env.episode_number = base_episode_number + max(evaluation_episode - 1, 0)
     env.done = False
     env.frame_count = 0
 
