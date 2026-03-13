@@ -5,9 +5,19 @@ class Environment:
     def __init__(self):
         self.width = 400
         self.height = 600
+        self.fps = 15
+        self.time_limit_seconds = 10
+        self.max_frames = self.fps * self.time_limit_seconds
+        self.attacker_progress_reward_scale = 0.2
+        self.defender_tracking_reward_scale = 0.2
         
         self.speed = 10
         self.done = False
+        self.frame_count = 0
+        self.attacker_score = 0
+        self.defender_score = 0
+        self.episode_number = 1
+        self.last_step_info = {}
 
         self.attacker = Attacker(np.array([self.width / 2, self.height - 50], np.float32))
         self.defender = Defender(np.array([self.width / 2 - 25, self.height / 2], np.float32))
@@ -36,43 +46,95 @@ class Environment:
         self.defender.reset()
 
         self.done = False
+        self.frame_count = 0
 
         return self.get_obs()
 
     def step(self, attacker_action, defender_action):
         if self.done:
             return self.get_obs(), (None, None), True
+
+        prev_attacker_x = float(self.attacker[0])
+        prev_attacker_y = float(self.attacker[1])
+        prev_defender_center_x = float(self.defender[0] + self.defender.width / 2)
         
-        # self.attacker.move(attacker_action)
-        # self.defender.move(defender_action)
-        self.__debug_controls()
+        self.attacker.move(attacker_action)
+        self.defender.move(defender_action)
+        self.frame_count += 1
+
+        curr_attacker_x = float(self.attacker[0])
+        curr_attacker_y = float(self.attacker[1])
+        curr_defender_center_x = float(self.defender[0] + self.defender.width / 2)
 
         attacker_reward = -0.01
         defender_reward = -0.01
+        terminal_reason = None
 
-        if self.__check_collision():
+        # Heuristic 1 (attacker): reward progress toward the midline.
+        midline_y = self.height / 2
+        prev_midline_distance = max(prev_attacker_y - midline_y, 0.0) / self.height
+        curr_midline_distance = max(curr_attacker_y - midline_y, 0.0) / self.height
+        attacker_reward += self.attacker_progress_reward_scale * (prev_midline_distance - curr_midline_distance)
+
+        # Heuristic 2 (defender): reward reducing horizontal distance to attacker.
+        prev_tracking_distance = abs(prev_attacker_x - prev_defender_center_x) / self.width
+        curr_tracking_distance = abs(curr_attacker_x - curr_defender_center_x) / self.width
+        defender_reward += self.defender_tracking_reward_scale * (prev_tracking_distance - curr_tracking_distance)
+
+        if self.__check_collision(): # Defender tags attacker
             attacker_reward -= 1
             defender_reward += 1
+            self.defender_score += 1
             self.done = True
+            terminal_reason = "tag"
             print("Defender gains a point")
 
-        elif self.attacker[1] < self.height / 2:
+        elif self.attacker[1] < self.height / 2: # Attacker passes through border
             attacker_reward += 1
             defender_reward -= 1
+            self.attacker_score += 1
             self.done = True
+            terminal_reason = "cross"
             print("Attacker gains a point")
 
-        return self.get_obs(), (attacker_reward, defender_reward), self.done
+        elif self.frame_count >= self.max_frames: # Defender wins on timeout
+            attacker_reward -= 1
+            defender_reward += 1
+            self.defender_score += 1
+            self.done = True
+            terminal_reason = "timeout"
+            print("Defender gains a point (timeout)")
+
+        terminal = self.done
+        self.last_step_info = {
+            "frame_count": int(self.frame_count),
+            "attacker_x": float(curr_attacker_x),
+            "attacker_y": float(curr_attacker_y),
+            "defender_x": float(self.defender[0]),
+            "defender_y": float(self.defender[1]),
+            "attacker_reward": float(attacker_reward),
+            "defender_reward": float(defender_reward),
+            "done": bool(terminal),
+            "terminal_reason": terminal_reason,
+        }
+
+        if terminal:
+            self.episode_number += 1
+            # Immediately reset after a point so the next frame starts a fresh round.
+            next_obs = self.reset()
+            return next_obs, (attacker_reward, defender_reward), True
+
+        return self.get_obs(), (attacker_reward, defender_reward), False
 
     def get_obs(self):
-        attacker_obs = np.array([
+        attacker_obs = np.array([ # normalized x, y, and distance between attacker and defender
             self.attacker[0] / self.width,
             self.attacker[1] / self.height,
             (self.defender[0] - self.attacker[0]) / self.width,
             (self.defender[1] - self.attacker[1]) / self.height,
         ])
 
-        defender_obs = np.array([
+        defender_obs = np.array([ # normalized x and distance between attacker and defender
             self.defender[0] / self.width,
             (self.attacker[0] - self.defender[0]) / self.width,
             (self.attacker[1] - self.defender[1]) / self.height,
@@ -84,19 +146,28 @@ class Environment:
         }
     
 class Renderer:
-    def __init__(self, env):
+    def __init__(self, env, fps=15):
         pygame.init()
         self.screen = pygame.display.set_mode((400, 600))
         pygame.display.set_caption("Patintero AI")
         self.clock = pygame.time.Clock()
-        self.fps = 30
+        self.fps = float(fps)
         self.env = env 
+        self.font = pygame.font.SysFont("consolas", 20)
+        self.small_font = pygame.font.SysFont("consolas", 16)
 
     def render(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
         self.screen.fill("black")
+
+        hud_title = self.font.render(f"Episode: {self.env.episode_number}", True, (240, 240, 240))
+        attacker_text = self.small_font.render(f"Attacker: {self.env.attacker_score}", True, (80, 160, 255))
+        defender_text = self.small_font.render(f"Defender: {self.env.defender_score}", True, (255, 110, 110))
+        self.screen.blit(hud_title, (10, 10))
+        self.screen.blit(attacker_text, (10, 36))
+        self.screen.blit(defender_text, (10, 58))
 
         self.env.attacker.render(self.screen)
         self.env.defender.render(self.screen)
@@ -132,8 +203,8 @@ class Attacker:
             new_position[0] = max(self.radius, min(new_position[0], self.screen_width - self.radius))
             new_position[1] = max(self.radius, min(new_position[1], self.screen_height - self.radius))
 
-            if new_position[0] != self.position[0] + (self.forward[0] * self.speed) or new_position[1] != self.position[1] + (self.forward[1] * self.speed):
-                print("Attacker is touching the boundary.")
+            # if new_position[0] != self.position[0] + (self.forward[0] * self.speed) or new_position[1] != self.position[1] + (self.forward[1] * self.speed):
+            #     print("Attacker is touching the boundary.")
 
             self.position = new_position
         
@@ -144,7 +215,8 @@ class Attacker:
         pass
 
     def reset(self):
-        self.position = np.array((self.screen_width / 2, self.screen_height - 50), np.float32)
+        random_x = np.random.uniform(self.radius, self.screen_width - self.radius)
+        self.position = np.array((random_x, self.screen_height - 50), np.float32)
         self.forward = np.array([0, -1], np.float32)
 
     def render(self, screen):
@@ -173,8 +245,8 @@ class Defender:
     def move(self, direction):
         if direction == 1 or direction == -1:
             new_x = max(0, min(self.position[0] + direction * self.speed, self.screen_width - self.width))
-            if new_x != self.position[0] + direction * self.speed:
-                print("Defender is touching the boundary!")
+            # if new_x != self.position[0] + direction * self.speed:
+            #     print("Defender is touching the boundary!")
             self.position[0] = new_x
 
         else:
@@ -184,7 +256,8 @@ class Defender:
         pass
 
     def reset(self):
-        self.position = np.array([self.screen_width / 2 - self.width / 2, self.screen_height / 2], np.float32)
+        random_x = np.random.uniform(0, self.screen_width - self.width)
+        self.position = np.array([random_x, self.screen_height / 2], np.float32)
     
     def render(self, screen):
         pygame.draw.rect(
