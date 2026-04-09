@@ -29,7 +29,7 @@ def run_training(args, env, renderer, policy, trained_episodes, metrics_writer, 
             deterministic=False,
             renderer=episode_renderer,
         )
-        policy.update(buffer, update_epochs=10, minibatch_size=64)
+        policy.update(buffer, update_epochs=args.update_epochs, minibatch_size=64)
         completed_in_run = ep
 
         winner, terminal_reason = get_terminal_outcome(env)
@@ -58,8 +58,10 @@ def run_training(args, env, renderer, policy, trained_episodes, metrics_writer, 
             log_training_metrics(metrics_record, args.metrics_format, metrics_writer, metrics_path)
 
         if global_ep % 25 == 0 or global_ep == 1:
+            timestamp = datetime.now().isoformat(timespec="seconds")
             print(
-                f"Episode {global_ep:4d} | "
+                
+                f"[{timestamp}] Episode {global_ep:4d} | "
                 f"Attacker return: {rollout_stats['attacker_return']:+.3f} | "
                 f"Defender return: {rollout_stats['defender_return']:+.3f} | "
                 f"Len: {int(rollout_stats['episode_len'])}"
@@ -80,6 +82,18 @@ def run_training(args, env, renderer, policy, trained_episodes, metrics_writer, 
                 output_format=args.trajectory_format,
             )
             print(f"Saved trajectory checkpoint: {output_path}")
+
+        if global_ep % args.autosave_every == 0:
+            policy.save(
+                args.model_path,
+                extra_state={
+                    "trained_episodes": global_ep,
+                    "episode_number": int(env.episode_number),
+                    "attacker_score": int(env.attacker_score),
+                    "defender_score": int(env.defender_score),
+                },
+            )
+            print(f"Autosaved model at episode {global_ep}: {args.model_path}")
 
     total_trained_episodes = trained_episodes + completed_in_run
     policy.save(

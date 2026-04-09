@@ -4,9 +4,9 @@ import os
 
 def get_terminal_outcome(env):
     terminal_reason = env.last_step_info.get("terminal_reason")
-    if terminal_reason == "cross":
+    if terminal_reason == "return":
         winner = "attacker"
-    elif terminal_reason in {"tag", "timeout"}:
+    elif terminal_reason in {"tag", "timeout", "invalid_recross"}:
         winner = "defender"
     else:
         winner = None

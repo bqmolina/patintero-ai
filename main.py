@@ -1,5 +1,9 @@
 import argparse
 import os
+from datetime import datetime
+
+import numpy as np
+import pygame
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -20,14 +24,63 @@ from trajectory_utils import (
 )
 
 
-MAX_FRAMES_PER_ROUND = 150
+MAX_FRAMES_PER_ROUND = 900
+
+
+def _now_ts() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def run_manual_mode(env, renderer, attacker_index, defender_index):
+    if renderer is None:
+        raise ValueError("Manual mode requires rendering.")
+
+    if attacker_index < 0 or attacker_index >= env.num_attackers:
+        raise ValueError(f"--manual-attacker-index must be in [0, {env.num_attackers - 1}]")
+    if defender_index < 0 or defender_index >= env.num_defenders:
+        raise ValueError(f"--manual-defender-index must be in [0, {env.num_defenders - 1}]")
+
+    print("Manual mode controls:")
+    print("  Attacker: LEFT (rotate -10), RIGHT (rotate +10), UP (forward)")
+    print("  Defender: A (left), D (right)")
+    print(f"  Controlled attacker index: {attacker_index}, defender index: {defender_index}")
+
+    env.reset()
+    while renderer.running:
+        pygame.event.pump()
+        keys = pygame.key.get_pressed()
+
+        attacker_actions = np.full(env.num_attackers, -1.0, dtype=np.float32)
+        defender_actions = np.zeros(env.num_defenders, dtype=np.int64)
+
+        if keys[pygame.K_LEFT]:
+            attacker_actions[attacker_index] = 350.0
+        elif keys[pygame.K_RIGHT]:
+            attacker_actions[attacker_index] = 10.0
+        elif keys[pygame.K_UP]:
+            attacker_actions[attacker_index] = 0.0
+
+        if keys[pygame.K_a]:
+            defender_actions[defender_index] = -1
+        elif keys[pygame.K_d]:
+            defender_actions[defender_index] = 1
+
+        _, _, done = env.step(attacker_actions, defender_actions)
+        renderer.render()
+
+        if done:
+            terminal_reason = env.last_step_info.get("terminal_reason")
+            print(f"Round ended: terminal_reason={terminal_reason}")
+            env.reset()
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train and run MAPPO policy for Patintero 1v1")
-    parser.add_argument("--mode", choices=["train", "play", "replay"], default="train")
-    parser.add_argument("--episodes", type=int, default=1500, help="Training episodes for MAPPO")
+    parser = argparse.ArgumentParser(description="Train and run MAPPO policy for Patintero 5v5")
+    parser.add_argument("--mode", choices=["train", "play", "replay", "manual"], default="train")
+    parser.add_argument("--episodes", type=int, default=900, help="Training episodes for MAPPO")
     parser.add_argument("--max-steps", type=int, default=MAX_FRAMES_PER_ROUND, help="Max steps per episode")
+    parser.add_argument("--update-epochs", type=int, default=10, help="Number of PPO update epochs per collected episode")
+    parser.add_argument("--autosave-every", type=int, default=100, help="Autosave model every N training episodes")
     parser.add_argument("--model-path", type=str, default="mappo_patintero.pt")
     parser.add_argument("--play-episodes", type=int, default=5, help="Evaluation episodes in play mode")
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
@@ -64,6 +117,8 @@ def parse_args():
     parser.add_argument("--log-metrics", action="store_true", help="Log training metrics for live monitoring")
     parser.add_argument("--metrics-log-step", type=int, default=1, help="Log metrics every N training episodes")
     parser.add_argument("--metrics-window", type=int, default=100, help="Rolling window size for win-rate and episode-length metrics")
+    parser.add_argument("--manual-attacker-index", type=int, default=0, help="Attacker index to control in manual mode")
+    parser.add_argument("--manual-defender-index", type=int, default=0, help="Defender index to control in manual mode")
     parser.add_argument(
         "--metrics-format",
         choices=["tensorboard", "jsonl", "both"],
@@ -76,6 +131,7 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
+    print(f"[{_now_ts()}] Program start")
     if args.render_every <= 0:
         raise ValueError("--render-every must be >= 1")
     if args.trajectory_checkpoint_every <= 0:
@@ -88,6 +144,10 @@ if __name__ == "__main__":
         raise ValueError("--metrics-log-step must be >= 1")
     if args.metrics_window <= 0:
         raise ValueError("--metrics-window must be >= 1")
+    if args.update_epochs <= 0:
+        raise ValueError("--update-epochs must be >= 1")
+    if args.autosave_every <= 0:
+        raise ValueError("--autosave-every must be >= 1")
     if args.mode == "replay" and not args.trajectory_file and args.replay_from_checkpoint is None:
         raise ValueError("For replay mode, provide --trajectory-file or --replay-from-checkpoint")
     if args.replay_from_checkpoint is not None and args.replay_from_checkpoint <= 0:
@@ -104,9 +164,16 @@ if __name__ == "__main__":
     env = Environment()
     render_fps = compute_render_fps(args.seconds_per_15_frames)
     renderer = None
-    if args.render or args.mode == "replay":
+    if args.render or args.mode in {"replay", "manual"}:
         renderer = Renderer(env, fps=render_fps)
         renderer.running = True
+
+    if args.mode == "manual":
+        run_manual_mode(env, renderer, args.manual_attacker_index, args.manual_defender_index)
+        if renderer is not None:
+            renderer.quit()
+        print("Game closed.")
+        raise SystemExit(0)
 
     device = select_device(args.device)
     policy = MAPPOPolicy(device=device)
@@ -158,9 +225,9 @@ if __name__ == "__main__":
                     stopped = replay_trajectory(env, renderer, trajectory_data, hydrate_from_training_state=False)
 
                     terminal_reason = trajectory_data.get("episode", {}).get("terminal_reason")
-                    if terminal_reason == "cross":
+                    if terminal_reason == "return":
                         replay_attacker_score += 1
-                    elif terminal_reason in {"tag", "timeout"}:
+                    elif terminal_reason in {"tag", "timeout", "invalid_recross"}:
                         replay_defender_score += 1
                     replay_episode_number += 1
                 else:
@@ -217,6 +284,7 @@ if __name__ == "__main__":
     played = 0
 
     while played < episodes_to_play:
+        print(f"Play loop tick: played={played}, target={episodes_to_play}")
         a_ret, d_ret, stopped = run_episode_with_policy(
             env,
             policy,
@@ -235,4 +303,5 @@ if __name__ == "__main__":
     if metrics_writer is not None:
         metrics_writer.close()
 
+    print(f"[{_now_ts()}] Program end")
     print("Game closed.") 

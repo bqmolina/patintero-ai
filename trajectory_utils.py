@@ -21,11 +21,12 @@ def run_episode_with_policy(
     defender_total = 0.0
     frames = []
     terminal_reason = None
+    render_closed = False
 
     for t in range(max_steps):
-        attacker_position = env.attacker.position.copy()
-        defender_position = env.defender.position.copy()
-        attacker_forward = env.attacker.forward.copy()
+        attacker_positions = np.stack([attacker.position.copy() for attacker in env.attackers], axis=0)
+        attacker_forwards = np.stack([attacker.forward.copy() for attacker in env.attackers], axis=0)
+        defender_positions = np.stack([defender.position.copy() for defender in env.defenders], axis=0)
 
         attacker_action, defender_action = policy.act(obs, deterministic=deterministic)
         obs, (attacker_reward, defender_reward), done = env.step(attacker_action, defender_action)
@@ -33,23 +34,20 @@ def run_episode_with_policy(
         step_info = getattr(env, "last_step_info", {})
         terminal_reason = step_info.get("terminal_reason", terminal_reason)
 
-        attacker_total += attacker_reward
-        defender_total += defender_reward
+        attacker_total += float(np.sum(attacker_reward))
+        defender_total += float(np.sum(defender_reward))
 
         if collect_trace:
             frames.append(
                 {
                     "frame_idx": int(t),
-                    "attacker_x": float(attacker_position[0]),
-                    "attacker_y": float(attacker_position[1]),
-                    "attacker_forward_x": float(attacker_forward[0]),
-                    "attacker_forward_y": float(attacker_forward[1]),
-                    "defender_x": float(defender_position[0]),
-                    "defender_y": float(defender_position[1]),
-                    "attacker_action": float(attacker_action),
-                    "defender_action": int(defender_action),
-                    "attacker_reward": float(attacker_reward),
-                    "defender_reward": float(defender_reward),
+                    "attackers": attacker_positions.tolist(),
+                    "attackers_forward": attacker_forwards.tolist(),
+                    "defenders": defender_positions.tolist(),
+                    "attacker_actions": np.asarray(attacker_action, dtype=np.float32).reshape(-1).tolist(),
+                    "defender_actions": np.asarray(defender_action, dtype=np.int64).reshape(-1).tolist(),
+                    "attacker_rewards": np.asarray(attacker_reward, dtype=np.float32).reshape(-1).tolist(),
+                    "defender_rewards": np.asarray(defender_reward, dtype=np.float32).reshape(-1).tolist(),
                     "done": bool(done),
                     "terminal_reason": step_info.get("terminal_reason"),
                 }
@@ -58,12 +56,16 @@ def run_episode_with_policy(
         if renderer is not None:
             renderer.render()
             if not renderer.running:
+                render_closed = True
                 if collect_trace:
-                    return attacker_total, defender_total, True, frames, terminal_reason
+                    return attacker_total, defender_total, True, frames, terminal_reason or "renderer_closed"
                 return attacker_total, defender_total, True
 
         if done:
             break
+
+    if terminal_reason is None:
+        terminal_reason = "renderer_closed" if render_closed else "truncated"
 
     if collect_trace:
         return attacker_total, defender_total, False, frames, terminal_reason
@@ -113,6 +115,8 @@ def write_checkpoint_trajectories(env, policy, checkpoint_episode, num_episodes,
         "fps": int(env.fps),
         "time_limit_seconds": int(env.time_limit_seconds),
         "max_frames": int(env.max_frames),
+        "num_attackers": int(getattr(env, "num_attackers", len(getattr(env, "attackers", [])))),
+        "num_defenders": int(getattr(env, "num_defenders", len(getattr(env, "defenders", [])))),
     }
     created_at = datetime.utcnow().isoformat() + "Z"
 
@@ -265,11 +269,24 @@ def replay_trajectory(env, renderer, trajectory_data, hydrate_from_training_stat
     env.frame_count = 0
 
     for frame in frames:
-        env.attacker.position = np.array([frame["attacker_x"], frame["attacker_y"]], dtype=np.float32)
-        env.attacker.forward = np.array(
-            [frame.get("attacker_forward_x", 0.0), frame.get("attacker_forward_y", -1.0)], dtype=np.float32
-        )
-        env.defender.position = np.array([frame["defender_x"], frame["defender_y"]], dtype=np.float32)
+        attacker_positions = frame.get("attackers")
+        attacker_forwards = frame.get("attackers_forward")
+        defender_positions = frame.get("defenders")
+
+        if attacker_positions is None:
+            attacker_positions = [[frame.get("attacker_x", 0.0), frame.get("attacker_y", 0.0)]]
+        if attacker_forwards is None:
+            attacker_forwards = [[frame.get("attacker_forward_x", 0.0), frame.get("attacker_forward_y", -1.0)]]
+        if defender_positions is None:
+            defender_positions = [[frame.get("defender_x", 0.0), frame.get("defender_y", 0.0)]]
+
+        for attacker, position, forward in zip(env.attackers, attacker_positions, attacker_forwards):
+            attacker.position = np.array(position, dtype=np.float32)
+            attacker.forward = np.array(forward, dtype=np.float32)
+
+        for defender, position in zip(env.defenders, defender_positions):
+            defender.position = np.array(position, dtype=np.float32)
+
         env.frame_count = int(frame.get("frame_idx", 0)) + 1
 
         renderer.render()
