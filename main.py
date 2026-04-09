@@ -126,6 +126,8 @@ def parse_args():
         help="Metrics output format for training logs",
     )
     parser.add_argument("--metrics-dir", type=str, default="metrics_logs", help="Directory for metrics output files")
+    parser.add_argument("--minibatch-size", type=int, default=256, help="Minibatch size for PPO updates (larger = better GPU utilization, default 256)")
+    parser.add_argument("--accumulate-episodes", type=int, default=1, help="Collect N episodes before each PPO update (larger = better parallelization, default 1)")
     return parser.parse_args()
 
 
@@ -148,6 +150,10 @@ if __name__ == "__main__":
         raise ValueError("--update-epochs must be >= 1")
     if args.autosave_every <= 0:
         raise ValueError("--autosave-every must be >= 1")
+    if args.minibatch_size <= 0:
+        raise ValueError("--minibatch-size must be >= 1")
+    if args.accumulate_episodes <= 0:
+        raise ValueError("--accumulate-episodes must be >= 1")
     if args.mode == "replay" and not args.trajectory_file and args.replay_from_checkpoint is None:
         raise ValueError("For replay mode, provide --trajectory-file or --replay-from-checkpoint")
     if args.replay_from_checkpoint is not None and args.replay_from_checkpoint <= 0:
