@@ -206,6 +206,6 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-metric_logs/
+metrics_logs/
 runs/
 trajectory_logs/
