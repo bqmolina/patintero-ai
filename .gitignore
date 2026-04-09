@@ -209,3 +209,5 @@ __marimo__/
 metrics_logs/
 runs/
 trajectory_logs/
+
+mappo_patintero.pt
