@@ -242,12 +242,16 @@ class Environment:
         winning_attacker = None
         winning_defender = None
 
-        midline_y = self.height / 2
         for attacker_idx in range(self.num_attackers):
-            prev_midline_distance = max(prev_attacker_positions[attacker_idx, 1] - midline_y, 0.0) / self.height
-            curr_midline_distance = max(curr_attacker_positions[attacker_idx, 1] - midline_y, 0.0) / self.height
+            if self.attacker_reached_return_area[attacker_idx]:
+                target_y = float(self.starting_area_y_min)
+            else:
+                target_y = float(self.return_area_y_max)
+
+            prev_target_distance = abs(float(prev_attacker_positions[attacker_idx, 1]) - target_y) / self.height
+            curr_target_distance = abs(float(curr_attacker_positions[attacker_idx, 1]) - target_y) / self.height
             attacker_rewards[attacker_idx] += self.attacker_progress_reward_scale * (
-                prev_midline_distance - curr_midline_distance
+                prev_target_distance - curr_target_distance
             )
 
         for defender_idx in range(self.num_defenders):

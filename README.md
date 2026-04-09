@@ -28,8 +28,8 @@ Rewards are computed per attacker and per defender every frame.
 
 - Base living reward: each agent receives `-0.01` every step.
 - Attacker progress shaping: each attacker gets
-	`+0.2 * (previous_midline_distance - current_midline_distance)`.
-	This rewards moving upward toward the middle of the board.
+	`+0.2 * (previous_target_distance - current_target_distance)`.
+	Before reaching the return area, the target is the return-area boundary; after reaching it, the target switches to the starting-area boundary.
 - Defender tracking shaping: each defender gets
 	`+0.2 * ((previous_nearest_attacker_distance - current_nearest_attacker_distance) / board_width)`.
 	This rewards closing distance to nearby attackers.
