@@ -30,7 +30,8 @@ Rewards are computed per attacker and per defender every frame.
 	`+0.4 * (previous_target_distance - current_target_distance)`.
 	Before reaching the return area, the target is the return-area boundary; after reaching it, the target switches to the starting-area boundary.
 - Return-area milestone reward: an attacker gets `+0.5` on the first step it reaches the return area.
-- Spin penalty: each attacker gets a small penalty proportional to how much it turns in a step, which discourages spinning in place.
+- Attacker distance reward: each attacker gets `+0.1 * (normalized_distance_to_nearest_defender)` every step, rewarding them for maintaining distance from defenders.
+- Return-area lingering penalty: an attacker in the return area accumulates a frame counter; each step they linger, they receive `-0.05 * (lingering_frames / 100.0)`.
 - Defender tracking shaping: each defender gets
 	`+0.2 * ((previous_nearest_attacker_distance - current_nearest_attacker_distance) / board_width)`.
 	This rewards closing distance to nearby attackers.
@@ -38,9 +39,9 @@ Rewards are computed per attacker and per defender every frame.
 Terminal rewards:
 
 - `tag` (defender catches attacker):
-	all attackers `-0.5`, all defenders `+0.5`, plus tagged attacker `-0.5` and tagging defender `+0.5`.
+	all attackers `-2.0`, all defenders `+1.0`, plus tagged attacker `-1.0` and tagging defender `+1.0`.
 - `return` (attacker reaches return area, then returns to starting area):
-	all attackers `+1.0`, all defenders `-1.0`, plus successful attacker `+1.0`.
+	all attackers `+3.0`, all defenders `-1.0`, plus successful attacker `+2.0`.
 - `invalid_recross` (illegal recross on outbound or return):
 	all attackers `-1.0`, all defenders `+1.0`.
 - `timeout` (frame limit reached):
@@ -84,8 +85,7 @@ Environment and game defaults:
 - Teams: 5 attackers, 5 defenders.
 - FPS: 15.
 - Environment timeout: `time_limit_seconds=60` -> `max_frames=900`.
-- Reward shaping scales: attacker progress `0.4`, defender tracking `0.2`.
-- Spin penalty scale: attacker `0.05`.
+- Reward shaping scales: attacker progress `0.4`, attacker distance `0.1`, return-area lingering penalty `0.05`, defender tracking `0.2`.
 
 MAPPO and optimization defaults:
 

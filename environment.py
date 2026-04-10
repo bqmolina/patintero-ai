@@ -17,9 +17,10 @@ class Environment:
         self.lengthwise_line_bottom = float(self.crosswise_line_ys[-1])
         self.starting_area_y_min = self.lengthwise_line_bottom
         self.return_area_y_max = self.lengthwise_line_top
-        self.attacker_progress_reward_scale = 0.4
+        self.attacker_progress_reward_scale = 0.2
         self.attacker_return_area_entry_reward = 0.5
-        self.attacker_spin_penalty_scale = 0.05
+        self.attacker_distance_reward_scale = 0.1
+        self.attacker_return_area_lingering_penalty_scale = 0.05
         self.defender_tracking_reward_scale = 0.2
 
         self.speed = 10
@@ -32,6 +33,7 @@ class Environment:
         self.attacker_reached_return_area = np.zeros(self.num_attackers, dtype=bool)
         self.attacker_crossed_lines = np.zeros((self.num_attackers, len(self.crosswise_line_ys)), dtype=bool)
         self.attacker_return_crossed_lines = np.zeros((self.num_attackers, len(self.crosswise_line_ys)), dtype=bool)
+        self.attacker_return_area_frames = np.zeros(self.num_attackers, dtype=np.int32)
 
         self.attackers = [Attacker(np.array([self.width / 2, self.height - 50], dtype=np.float32)) for _ in range(self.num_attackers)]
         self.defenders = [
@@ -200,6 +202,7 @@ class Environment:
         self.attacker_reached_return_area.fill(False)
         self.attacker_crossed_lines.fill(False)
         self.attacker_return_crossed_lines.fill(False)
+        self.attacker_return_area_frames.fill(0)
 
         return self.get_obs()
 
@@ -219,7 +222,6 @@ class Environment:
             raise ValueError(f"Expected {self.num_defenders} defender actions, got {defender_actions.size}")
 
         prev_attacker_positions = np.stack([attacker.position.copy() for attacker in self.attackers], axis=0)
-        prev_attacker_forwards = np.stack([attacker.forward.copy() for attacker in self.attackers], axis=0)
         prev_reached_return_area = self.attacker_reached_return_area.copy()
         prev_defender_centers = np.stack(
             [defender.position + np.array([defender.width / 2, defender.height / 2], dtype=np.float32) for defender in self.defenders],
@@ -263,11 +265,18 @@ class Environment:
             attacker_rewards[newly_reached_return_area] += self.attacker_return_area_entry_reward
 
         for attacker_idx in range(self.num_attackers):
-            prev_forward = prev_attacker_forwards[attacker_idx]
-            curr_forward = self.attackers[attacker_idx].forward
-            cosine = float(np.clip(np.dot(prev_forward, curr_forward), -1.0, 1.0))
-            turn_angle = float(np.degrees(np.arccos(cosine)))
-            attacker_rewards[attacker_idx] -= self.attacker_spin_penalty_scale * (turn_angle / 180.0)
+            distances_to_defenders = np.linalg.norm(curr_attacker_positions[attacker_idx] - curr_defender_centers, axis=1)
+            nearest_defender_distance = float(np.min(distances_to_defenders)) / self.width
+            attacker_rewards[attacker_idx] += self.attacker_distance_reward_scale * nearest_defender_distance
+
+            if self.attacker_reached_return_area[attacker_idx]:
+                self.attacker_return_area_frames[attacker_idx] += 1
+                lingering_penalty = self.attacker_return_area_lingering_penalty_scale * (
+                    float(self.attacker_return_area_frames[attacker_idx]) / 100.0
+                )
+                attacker_rewards[attacker_idx] -= lingering_penalty
+            else:
+                self.attacker_return_area_frames[attacker_idx] = 0
 
         for defender_idx in range(self.num_defenders):
             prev_tracking_distance = np.min(np.linalg.norm(prev_attacker_positions - prev_defender_centers[defender_idx], axis=1))
@@ -279,10 +288,10 @@ class Environment:
         collision_pair = self.__check_collision()
         if collision_pair is not None:
             winning_attacker, winning_defender = collision_pair
-            attacker_rewards -= 0.5
-            defender_rewards += 0.5
-            attacker_rewards[winning_attacker] -= 0.5
-            defender_rewards[winning_defender] += 0.5
+            attacker_rewards -= 2.0
+            defender_rewards += 1.0
+            attacker_rewards[winning_attacker] -= 1.0
+            defender_rewards[winning_defender] += 1.0
             self.defender_score += 1
             self.done = True
             terminal_reason = "tag"
@@ -303,9 +312,9 @@ class Environment:
             ]
             if crossing_attackers:
                 winning_attacker = crossing_attackers[0]
-                attacker_rewards += 1.0
+                attacker_rewards += 3.0
                 defender_rewards -= 1.0
-                attacker_rewards[winning_attacker] += 1.0
+                attacker_rewards[winning_attacker] += 2.0
                 self.attacker_score += 1
                 self.done = True
                 terminal_reason = "return"
