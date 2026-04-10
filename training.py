@@ -115,13 +115,7 @@ def run_training(args, env, renderer, policy, trained_episodes, metrics_writer, 
             }
             log_training_metrics(metrics_record, args.metrics_format, metrics_writer, metrics_path)
 
-        # Always capture the beginning of a training run, then continue periodic checkpoints.
-        run_episode_index = last_ep - trained_episodes
-        should_log_trajectory = (
-            run_episode_index <= args.trajectory_episodes
-            or (last_ep % args.trajectory_checkpoint_every == 0)
-        )
-        if args.log_trajectories and should_log_trajectory:
+        if args.log_trajectories and (last_ep % args.trajectory_checkpoint_every == 0):
             output_path = write_checkpoint_trajectories(
                 env,
                 policy,

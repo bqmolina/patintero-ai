@@ -27,13 +27,12 @@ Rewards are computed per attacker and per defender every frame.
 
 - Base living reward: each agent receives `-0.01` every step.
 - Attacker progress shaping: each attacker gets
-	`+0.4 * (previous_target_distance - current_target_distance)`.
+	`+0.1 * (previous_target_distance - current_target_distance)`.
 	Before reaching the return area, the target is the return-area boundary; after reaching it, the target switches to the starting-area boundary.
 - Return-area milestone reward: an attacker gets `+0.5` on the first step it reaches the return area.
-- Attacker distance reward: each attacker gets `+0.1 * (normalized_distance_to_nearest_defender)` every step, rewarding them for maintaining distance from defenders.
 - Return-area lingering penalty: an attacker in the return area accumulates a frame counter; each step they linger, they receive `-0.05 * (lingering_frames / 100.0)`.
 - Defender tracking shaping: each defender gets
-	`+0.2 * ((previous_nearest_attacker_distance - current_nearest_attacker_distance) / board_width)`.
+	`+0.05 * ((previous_nearest_attacker_distance - current_nearest_attacker_distance) / board_width)`.
 	This rewards closing distance to nearby attackers.
 
 Terminal rewards:
@@ -85,7 +84,7 @@ Environment and game defaults:
 - Teams: 5 attackers, 5 defenders.
 - FPS: 15.
 - Environment timeout: `time_limit_seconds=60` -> `max_frames=900`.
-- Reward shaping scales: attacker progress `0.4`, attacker distance `0.1`, return-area lingering penalty `0.05`, defender tracking `0.2`.
+- Reward shaping scales: attacker progress `0.1`, return-area lingering penalty `0.05`, defender tracking `0.05`.
 
 MAPPO and optimization defaults:
 

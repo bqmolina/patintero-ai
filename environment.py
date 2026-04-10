@@ -17,11 +17,10 @@ class Environment:
         self.lengthwise_line_bottom = float(self.crosswise_line_ys[-1])
         self.starting_area_y_min = self.lengthwise_line_bottom
         self.return_area_y_max = self.lengthwise_line_top
-        self.attacker_progress_reward_scale = 0.2
+        self.attacker_progress_reward_scale = 0.1
         self.attacker_return_area_entry_reward = 0.5
-        self.attacker_distance_reward_scale = 0.1
         self.attacker_return_area_lingering_penalty_scale = 0.05
-        self.defender_tracking_reward_scale = 0.2
+        self.defender_tracking_reward_scale = 0.05
 
         self.speed = 10
         self.done = False
@@ -265,10 +264,6 @@ class Environment:
             attacker_rewards[newly_reached_return_area] += self.attacker_return_area_entry_reward
 
         for attacker_idx in range(self.num_attackers):
-            distances_to_defenders = np.linalg.norm(curr_attacker_positions[attacker_idx] - curr_defender_centers, axis=1)
-            nearest_defender_distance = float(np.min(distances_to_defenders)) / self.width
-            attacker_rewards[attacker_idx] += self.attacker_distance_reward_scale * nearest_defender_distance
-
             if self.attacker_reached_return_area[attacker_idx]:
                 self.attacker_return_area_frames[attacker_idx] += 1
                 lingering_penalty = self.attacker_return_area_lingering_penalty_scale * (
