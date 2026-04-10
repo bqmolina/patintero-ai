@@ -30,6 +30,7 @@ Rewards are computed per attacker and per defender every frame.
 	`+0.4 * (previous_target_distance - current_target_distance)`.
 	Before reaching the return area, the target is the return-area boundary; after reaching it, the target switches to the starting-area boundary.
 - Return-area milestone reward: an attacker gets `+0.5` on the first step it reaches the return area.
+- Spin penalty: each attacker gets a small penalty proportional to how much it turns in a step, which discourages spinning in place.
 - Defender tracking shaping: each defender gets
 	`+0.2 * ((previous_nearest_attacker_distance - current_nearest_attacker_distance) / board_width)`.
 	This rewards closing distance to nearby attackers.
@@ -84,6 +85,7 @@ Environment and game defaults:
 - FPS: 15.
 - Environment timeout: `time_limit_seconds=60` -> `max_frames=900`.
 - Reward shaping scales: attacker progress `0.4`, defender tracking `0.2`.
+- Spin penalty scale: attacker `0.05`.
 
 MAPPO and optimization defaults:
 

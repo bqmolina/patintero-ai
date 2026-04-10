@@ -19,6 +19,7 @@ class Environment:
         self.return_area_y_max = self.lengthwise_line_top
         self.attacker_progress_reward_scale = 0.4
         self.attacker_return_area_entry_reward = 0.5
+        self.attacker_spin_penalty_scale = 0.05
         self.defender_tracking_reward_scale = 0.2
 
         self.speed = 10
@@ -218,6 +219,7 @@ class Environment:
             raise ValueError(f"Expected {self.num_defenders} defender actions, got {defender_actions.size}")
 
         prev_attacker_positions = np.stack([attacker.position.copy() for attacker in self.attackers], axis=0)
+        prev_attacker_forwards = np.stack([attacker.forward.copy() for attacker in self.attackers], axis=0)
         prev_reached_return_area = self.attacker_reached_return_area.copy()
         prev_defender_centers = np.stack(
             [defender.position + np.array([defender.width / 2, defender.height / 2], dtype=np.float32) for defender in self.defenders],
@@ -259,6 +261,13 @@ class Environment:
         newly_reached_return_area = np.logical_and(~prev_reached_return_area, self.attacker_reached_return_area)
         if np.any(newly_reached_return_area):
             attacker_rewards[newly_reached_return_area] += self.attacker_return_area_entry_reward
+
+        for attacker_idx in range(self.num_attackers):
+            prev_forward = prev_attacker_forwards[attacker_idx]
+            curr_forward = self.attackers[attacker_idx].forward
+            cosine = float(np.clip(np.dot(prev_forward, curr_forward), -1.0, 1.0))
+            turn_angle = float(np.degrees(np.arccos(cosine)))
+            attacker_rewards[attacker_idx] -= self.attacker_spin_penalty_scale * (turn_angle / 180.0)
 
         for defender_idx in range(self.num_defenders):
             prev_tracking_distance = np.min(np.linalg.norm(prev_attacker_positions - prev_defender_centers[defender_idx], axis=1))

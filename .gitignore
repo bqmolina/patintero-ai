@@ -211,3 +211,4 @@ runs/
 trajectory_logs/
 
 mappo_patintero.pt
+*.pt
