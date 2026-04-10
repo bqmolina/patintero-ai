@@ -17,7 +17,8 @@ class Environment:
         self.lengthwise_line_bottom = float(self.crosswise_line_ys[-1])
         self.starting_area_y_min = self.lengthwise_line_bottom
         self.return_area_y_max = self.lengthwise_line_top
-        self.attacker_progress_reward_scale = 0.2
+        self.attacker_progress_reward_scale = 0.4
+        self.attacker_return_area_entry_reward = 0.5
         self.defender_tracking_reward_scale = 0.2
 
         self.speed = 10
@@ -217,6 +218,7 @@ class Environment:
             raise ValueError(f"Expected {self.num_defenders} defender actions, got {defender_actions.size}")
 
         prev_attacker_positions = np.stack([attacker.position.copy() for attacker in self.attackers], axis=0)
+        prev_reached_return_area = self.attacker_reached_return_area.copy()
         prev_defender_centers = np.stack(
             [defender.position + np.array([defender.width / 2, defender.height / 2], dtype=np.float32) for defender in self.defenders],
             axis=0,
@@ -254,6 +256,10 @@ class Environment:
                 prev_target_distance - curr_target_distance
             )
 
+        newly_reached_return_area = np.logical_and(~prev_reached_return_area, self.attacker_reached_return_area)
+        if np.any(newly_reached_return_area):
+            attacker_rewards[newly_reached_return_area] += self.attacker_return_area_entry_reward
+
         for defender_idx in range(self.num_defenders):
             prev_tracking_distance = np.min(np.linalg.norm(prev_attacker_positions - prev_defender_centers[defender_idx], axis=1))
             curr_tracking_distance = np.min(np.linalg.norm(curr_attacker_positions - curr_defender_centers[defender_idx], axis=1))
@@ -288,9 +294,9 @@ class Environment:
             ]
             if crossing_attackers:
                 winning_attacker = crossing_attackers[0]
-                attacker_rewards += 0.5
-                defender_rewards -= 0.5
-                attacker_rewards[winning_attacker] += 0.5
+                attacker_rewards += 1.0
+                defender_rewards -= 1.0
+                attacker_rewards[winning_attacker] += 1.0
                 self.attacker_score += 1
                 self.done = True
                 terminal_reason = "return"

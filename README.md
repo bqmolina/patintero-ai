@@ -12,7 +12,6 @@ Four defenders move crosswise on the horizontal lanes, and one defender moves al
 - Attackers move with continuous angle actions and must first reach the return area (above the first crosswise line), then return to the starting area.
 - Defenders move on fixed lanes: 4 defenders patrol the crosswise lines and 1 defender patrols the lengthwise line between the first and last crosswise lines.
 - The game advances one frame at a time. Environment timeout is 900 steps unless changed via `--max-steps`.
-- Reaching the lane-based board layout and tracking the opponent positions are part of the observation given to each team.
 
 ## Win condition
 
@@ -28,8 +27,9 @@ Rewards are computed per attacker and per defender every frame.
 
 - Base living reward: each agent receives `-0.01` every step.
 - Attacker progress shaping: each attacker gets
-	`+0.2 * (previous_target_distance - current_target_distance)`.
+	`+0.4 * (previous_target_distance - current_target_distance)`.
 	Before reaching the return area, the target is the return-area boundary; after reaching it, the target switches to the starting-area boundary.
+- Return-area milestone reward: an attacker gets `+0.5` on the first step it reaches the return area.
 - Defender tracking shaping: each defender gets
 	`+0.2 * ((previous_nearest_attacker_distance - current_nearest_attacker_distance) / board_width)`.
 	This rewards closing distance to nearby attackers.
@@ -39,7 +39,7 @@ Terminal rewards:
 - `tag` (defender catches attacker):
 	all attackers `-0.5`, all defenders `+0.5`, plus tagged attacker `-0.5` and tagging defender `+0.5`.
 - `return` (attacker reaches return area, then returns to starting area):
-	all attackers `+0.5`, all defenders `-0.5`, plus successful attacker `+0.5`.
+	all attackers `+1.0`, all defenders `-1.0`, plus successful attacker `+1.0`.
 - `invalid_recross` (illegal recross on outbound or return):
 	all attackers `-1.0`, all defenders `+1.0`.
 - `timeout` (frame limit reached):
@@ -49,7 +49,7 @@ During training logs, attacker and defender episode returns are team sums across
 
 ## What the agents see
 
-The policy does not see raw pixels. It receives structured observations from the environment.
+The agents do not see raw pixels. They receive structured observations from the environment.
 
 - Attacker input: each attacker sees its own normalized position and direction, the relative positions of all defenders, the relative positions of the other attackers, the board line layout, and a small score/episode context.
 - Defender input: each defender sees its own normalized position, whether it is a crosswise or lengthwise defender, its lane position, the relative positions of all attackers, the relative positions and lane roles of the other defenders, the board line layout, and a small score/episode context.
@@ -71,10 +71,10 @@ Both agents are trained with MAPPO (Multi-Agent PPO):
 
 ## Model architecture
 
-- Backbone: MLP (2 hidden layers, ReLU activations).
+- Agent backbone: MLP (2 hidden layers, ReLU activations).
 - Attacker actor head: one shared Gaussian policy for the 5 attackers, squashed and mapped to angle space.
 - Defender actor head: one shared categorical policy for the 5 defenders.
-- Critics: value MLPs (one per agent) over stacked joint-state features.
+- Critics: value MLPs over stacked joint-state features.
 
 ## Hyperparameters
 
@@ -82,8 +82,8 @@ Environment and game defaults:
 
 - Teams: 5 attackers, 5 defenders.
 - FPS: 15.
-- Environment timeout: `time_limit_seconds=100` -> `max_frames=900`.
-- Reward shaping scales: attacker progress `0.2`, defender tracking `0.2`.
+- Environment timeout: `time_limit_seconds=60` -> `max_frames=900`.
+- Reward shaping scales: attacker progress `0.4`, defender tracking `0.2`.
 
 MAPPO and optimization defaults:
 
@@ -95,7 +95,7 @@ MAPPO and optimization defaults:
 - Actor learning rate (`actor_lr`): `3e-4`.
 - Critic learning rate (`critic_lr`): `1e-3`.
 - Frame stack: `5`.
-- Minibatch size: `64`.
+- Minibatch size: `256`.
 - PPO update epochs per episode (`--update-epochs`): `10`.
 
 Common training/runtime knobs (CLI):
@@ -123,10 +123,6 @@ python main.py --mode train --no-render --episodes 3000 --model-path mappo_patin
 python main.py --mode train --no-render --episodes 3000 --model-path mappo_patintero.pt --log-trajectories --trajectory-checkpoint-every 100 --trajectory-episodes 5 --trajectory-format jsonl --trajectory-dir trajectory_logs --log-metrics --metrics-format both --metrics-log-step 10 --metrics-window 200 --metrics-dir metrics_logs
 ```
 
-```bash
-python main.py --mode train --no-render --episodes 30000 --model-path mappo_patintero.pt --log-trajectories --trajectory-checkpoint-every 1000 --trajectory-episodes 50 --trajectory-format jsonl --trajectory-dir trajectory_logs --log-metrics --metrics-format both --metrics-log-step 10 --metrics-window 200 --metrics-dir metrics_logs --update-epochs 3
-```
-
 ### 3) Open TensorBoard
 
 ```bash
@@ -141,13 +137,13 @@ python main.py --mode play --model-path mappo_patintero.pt --render --play-episo
 
 ## Replay trajectories
 
-### Replay one evaluation episode from one checkpoint file
+### Replay one episode from one checkpoint file
 
 ```bash
 python main.py --mode replay --trajectory-file trajectory_logs/checkpoint_0002700.jsonl --trajectory-episode 1
 ```
 
-### Replay all evaluation episodes in one checkpoint file
+### Replay all episodes in one checkpoint file
 
 ```bash
 python main.py --mode replay --trajectory-file trajectory_logs/checkpoint_0002700.jsonl --replay-all-episodes
@@ -165,7 +161,7 @@ Optional upper bound:
 python main.py --mode replay --trajectory-dir trajectory_logs --replay-from-checkpoint 2700 --replay-to-checkpoint 3000 --trajectory-episode 1
 ```
 
-Replay every evaluation episode for each file in the range:
+Replay every episode for each file in the range:
 
 ```bash
 python main.py --mode replay --trajectory-dir trajectory_logs --replay-from-checkpoint 2700 --replay-to-checkpoint 3000 --replay-all-episodes
